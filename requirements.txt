@@ -2,4 +2,4 @@ Flask
 Flask-Cors
 google-generativeai
 gunicorn
-psycopg2-binary  # For PostgreSQL
+whitenoise # For serving static files with Flask/Gunicorn
