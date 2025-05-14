@@ -1,119 +1,103 @@
-# finance-monitor-vercel/app.py - Core Flask application logic
+# finance-monitor-vercel/app.py - Core Flask application logic for Vercel with PostgreSQL
 
-import sqlite3
-import json
 import os
+import psycopg2 # For PostgreSQL
+from psycopg2 import sql # For safe SQL identifiers, if needed
+from psycopg2.extras import RealDictCursor # To get results as dictionaries
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import google.generativeai as genai
-# import os # Already imported above
 
-# --- Configuration ---
-# Define the path for the SQLite database file
-# NOTE: When deployed on Vercel, this path will be inside the ephemeral /tmp directory.
-# Data stored here will NOT persist between function invocations.
-# For local development, we'll still use the local path relative to the script.
+# --- Database Configuration (PostgreSQL for Vercel/Neon) ---
+# Vercel, when integrated with Neon, will provide this environment variable.
+DATABASE_URL = os.getenv('POSTGRES_URL')
 
-# Determine the base directory of the app.py file
-BASE_DIR = os.path.dirname(__file__)
-
-# Database path depends on the environment
-# On Vercel, use /tmp. Otherwise, use the local path.
-# The VERCEL environment variable is set automatically by Vercel.
-if "VERCEL" in os.environ:
-     DATABASE_PATH = os.path.join('/tmp', 'finance.db')
-     print(f"Running on Vercel. Using temporary database path: {DATABASE_PATH}")
-else:
-     DATABASE_PATH = os.path.join(BASE_DIR, 'finance.db')
-     print(f"Running locally. Using database path: {DATABASE_PATH}")
-
+if not DATABASE_URL:
+    print("CRITICAL: POSTGRES_URL environment variable not set. Database will not connect.")
+    # In a real app, you might want to raise an exception or exit if the DB is essential.
 
 # --- Google AI Configuration ---
-# This key will be read from Vercel Environment Variables (or local env)
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-
-use_llm = False # Flag to track if LLM is successfully configured
-
+use_llm = False
 if not GOOGLE_API_KEY:
     print("Warning: GOOGLE_API_KEY environment variable not set.")
-    print("LLM analysis features (summary and detailed) will use fallback rule-based logic.")
+    print("LLM analysis features will use fallback rule-based logic.")
 else:
     try:
         genai.configure(api_key=GOOGLE_API_KEY)
-        # Attempt a basic call to list models to verify the key and connection
-        # This can add a small delay on cold starts.
         print("Attempting to configure Google Generative AI...")
-        # We don't need the result, just testing the connection/auth
-        # Using next() ensures we only fetch one item, slightly faster
         next(genai.list_models())
         print("Google Generative AI configured successfully.")
         use_llm = True
     except Exception as e:
         print(f"Error configuring Google Generative AI: {e}")
-        print("LLM analysis features (summary and detailed) will use fallback rule-based logic.")
-        # Ensure use_llm remains False
+        print("LLM analysis features will use fallback rule-based logic.")
+        use_llm = False
 
-
-# --- Database Functions ---
+# --- Database Functions (PostgreSQL) ---
 
 def get_db_connection():
-    """Creates and returns a database connection."""
-    # This function now correctly uses DATABASE_PATH which is set based on environment
-    conn = sqlite3.connect(DATABASE_PATH)
-    conn.row_factory = sqlite3.Row  # This allows accessing columns by name
-    return conn
+    """Creates and returns a PostgreSQL database connection."""
+    if not DATABASE_URL:
+        raise ConnectionError("DATABASE_URL not configured.")
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    except psycopg2.Error as e:
+        print(f"Error connecting to PostgreSQL database: {e}")
+        raise # Re-raise the exception to be caught by the caller
 
 def init_db():
-    """Initializes the database and creates the transactions table."""
-    # This function will run when the Vercel function starts up.
-    # It handles creating the table and adding sample data if the DB is empty.
-    # Since the DB is created in /tmp on Vercel, it will be empty on every cold start.
-    print("Initializing database...")
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    """Initializes the PostgreSQL database and creates the transactions table if it doesn't exist."""
+    print("Initializing PostgreSQL database schema...")
+    conn = None
+    try:
+        conn = get_db_connection()
+        # Using RealDictCursor makes fetchall() return a list of dicts directly
+        with conn.cursor() as cur: # Using 'with' ensures the cursor is closed
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id SERIAL PRIMARY KEY,
+                    description TEXT NOT NULL,
+                    type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
+                    amount REAL NOT NULL,
+                    date DATE NOT NULL 
+                )
+            ''')
 
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            description TEXT NOT NULL,
-            type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
-            amount REAL NOT NULL,
-            date TEXT NOT NULL
-        )
-    ''')
-
-    # Check if table is empty BEFORE adding sample data
-    # This prevents adding duplicates if the function instance is reused (warm start)
-    cursor.execute('SELECT COUNT(*) FROM transactions')
-    count = cursor.fetchone()[0]
-
-    if count == 0:
-        print("Database is empty. Adding sample transactions.")
-        sample_transactions = [
-            ('Initial Investment', 'income', 50000.00, '2023-01-01'),
-            ('Office Rent', 'expense', 2000.00, '2023-01-15'),
-            ('Consulting Fee (Client A)', 'income', 10000.00, '2023-02-10'),
-            ('Software Subscription', 'expense', 150.00, '2023-02-12'),
-            ('Salaries', 'expense', 8000.00, '2023-02-28'),
-            ('Consulting Fee (Client B)', 'income', 15000.00, '2023-03-05'),
-        ]
-        cursor.executemany('''
-            INSERT INTO transactions (description, type, amount, date) VALUES (?, ?, ?, ?)
-        ''', sample_transactions)
-        conn.commit() # Commit only if new data was added
-
-    conn.close()
-    print("Database initialization complete.")
+            cur.execute('SELECT COUNT(*) FROM transactions')
+            count_result = cur.fetchone()
+             # fetchone() on an empty table with COUNT(*) should return (0,), not None
+            count = count_result[0] if count_result else 0
 
 
-# --- Analysis Logic (Using LLM if configured, with fallbacks) ---
-# Keep these functions exactly the same as in the previous updated app.py
+            if count == 0:
+                print("PostgreSQL transactions table is empty. Adding sample transactions.")
+                sample_transactions = [
+                    ('Initial Cloud Investment', 'income', 50000.00, '2023-01-01'),
+                    ('Cloud Server Hosting', 'expense', 200.00, '2023-01-15'),
+                    ('Consulting Services (Client X)', 'income', 12000.00, '2023-02-10'),
+                    ('Software Licensing', 'expense', 180.00, '2023-02-12'),
+                    ('Employee Salaries', 'expense', 8500.00, '2023-02-28'),
+                    ('Project Fee (Client Y)', 'income', 18000.00, '2023-03-05'),
+                ]
+                # For executemany with psycopg2, the query placeholders are %s
+                cur.executemany('''
+                    INSERT INTO transactions (description, type, amount, date) VALUES (%s, %s, %s, %s)
+                ''', sample_transactions)
+            
+            conn.commit() # Commit changes
+    except (Exception, psycopg2.Error) as error:
+        print(f"Error while initializing PostgreSQL database: {error}")
+        if conn:
+            conn.rollback() # Rollback in case of error during init
+    finally:
+        if conn:
+            conn.close()
+    print("PostgreSQL database initialization attempt complete.")
 
+# --- Analysis Logic (remains the same as your SQLite version) ---
 def analyze_performance_summary(total_income, total_expense, net_profit):
-    """
-    Generates a brief performance summary, using LLM if configured,
-    otherwise using simple rules.
-    """
     performance_message = ""
     if use_llm:
         try:
@@ -149,10 +133,6 @@ def analyze_performance_summary(total_income, total_expense, net_profit):
     return performance_message
 
 def analyze_performance_detailed(total_income, total_expense, net_profit):
-    """
-    Generates a detailed performance analysis with improvement suggestions,
-    using LLM if configured, otherwise using basic suggestions.
-    """
     detailed_message = ""
     if use_llm:
         try:
@@ -201,91 +181,116 @@ def analyze_performance_detailed(total_income, total_expense, net_profit):
         detailed_message += "\n(This is a basic fallback analysis, not from an LLM.)"
     return detailed_message
 
-
 # --- Flask App Setup ---
-
 app = Flask(__name__)
 CORS(app)
 
-# Initialize DB when the module is loaded (i.e., when the serverless function starts)
-# This is crucial for Vercel as the /tmp filesystem is ephemeral.
-# This ensures the table and sample data are ready for each new function instance.
+# Initialize DB when the Flask app module is loaded by Vercel.
+# This is crucial for serverless environments.
 init_db()
 
-# --- API Endpoints ---
+# --- API Endpoints (Adapted for PostgreSQL) ---
 
-# The root route '/' won't be hit by the vercel.json config below,
-# which routes '/' to static/index.html
 @app.route('/')
 def index():
-    """Root endpoint - just a status check (unlikely to be hit by frontend)."""
-    return "Finance Monitor Backend is running!"
+    """Root endpoint - just a status check."""
+    return "Finance Monitor Backend (PostgreSQL) is running!"
 
 @app.route('/transactions', methods=['GET'])
 def get_transactions():
     """Fetches all transactions."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM transactions ORDER BY date DESC, id DESC")
-    transactions = cursor.fetchall()
-    conn.close()
-    transactions_list = [dict(row) for row in transactions]
-    return jsonify(transactions_list)
+    conn = None
+    try:
+        conn = get_db_connection()
+        # Using RealDictCursor to get results as dictionaries directly
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT id, description, type, amount, date FROM transactions ORDER BY date DESC, id DESC")
+            transactions_list = cur.fetchall() # Now a list of dicts
+        return jsonify(transactions_list)
+    except (Exception, psycopg2.Error) as error:
+        print(f"Error fetching transactions: {error}")
+        return jsonify({'error': f'Database error fetching transactions: {error}'}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/add_transaction', methods=['POST'])
 def add_new_transaction():
     """Adds a new transaction from POST request data."""
-    new_transaction = request.json
-    if not new_transaction:
+    new_transaction_data = request.json
+    if not new_transaction_data:
         return jsonify({'error': 'Invalid input: No JSON data received'}), 400
 
-    description = new_transaction.get('description')
-    type = new_transaction.get('type')
-    amount = new_transaction.get('amount')
-    date = new_transaction.get('date')
+    description = new_transaction_data.get('description')
+    # Renamed 'type' to 'type_' to avoid conflict with Python's built-in type
+    type_ = new_transaction_data.get('type') 
+    amount_str = new_transaction_data.get('amount') # Amount might come as string
+    date_str = new_transaction_data.get('date') # Date string from JSON
 
-    if not all([description, type, amount, date]):
+    if not all([description, type_, amount_str, date_str]):
         return jsonify({'error': 'Missing required fields: description, type, amount, date'}), 400
 
-    if type not in ['income', 'expense']:
+    if type_ not in ['income', 'expense']:
          return jsonify({'error': 'Invalid type. Must be "income" or "expense"'}), 400
 
     try:
-        amount = float(amount)
+        amount = float(amount_str) # Convert amount to float
         if amount < 0:
              return jsonify({'error': 'Amount must be positive'}), 400
     except ValueError:
         return jsonify({'error': 'Amount must be a number'}), 400
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    conn = None
     try:
-        cursor.execute('''
-            INSERT INTO transactions (description, type, amount, date) VALUES (?, ?, ?, ?)
-        ''', (description, type, amount, date))
-        conn.commit()
-        new_id = cursor.lastrowid
-        conn.close()
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            # Use %s for placeholders in psycopg2
+            # RETURNING id will give back the id of the newly inserted row
+            cur.execute('''
+                INSERT INTO transactions (description, type, amount, date) VALUES (%s, %s, %s, %s)
+                RETURNING id; 
+            ''', (description, type_, amount, date_str)) # Ensure date_str is in 'YYYY-MM-DD' format
+            new_id_tuple = cur.fetchone() # fetchone() returns a tuple, e.g., (new_id_value,)
+            if new_id_tuple is None:
+                raise Exception("Failed to insert transaction or retrieve new ID.")
+            new_id = new_id_tuple[0]
+            conn.commit()
         return jsonify({'message': 'Transaction added successfully', 'id': new_id}), 201
-    except Exception as e:
-        conn.rollback()
-        conn.close()
-        print(f"Database error adding transaction: {e}")
-        return jsonify({'error': f'Database error: {e}'}), 500
+    except (Exception, psycopg2.Error) as error:
+        print(f"Database error adding transaction: {error}")
+        if conn:
+            conn.rollback() # Rollback on error
+        return jsonify({'error': f'Database error adding transaction: {error}'}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/performance_analysis', methods=['GET'])
 def get_performance_analysis_route():
     """Route for the brief summary analysis."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT type, SUM(amount) FROM transactions GROUP BY type")
-    totals = dict(cursor.fetchall())
-    conn.close()
+    conn = None
+    total_income = 0.0
+    total_expense = 0.0
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur: # Use RealDictCursor
+            cur.execute("SELECT type, SUM(amount) AS total FROM transactions GROUP BY type")
+            totals_rows = cur.fetchall() # List of dicts, e.g., [{'type': 'income', 'total': 500.0}]
+        
+        for row in totals_rows:
+            if row['type'] == 'income':
+                total_income = row['total'] if row['total'] is not None else 0.0
+            elif row['type'] == 'expense':
+                total_expense = row['total'] if row['total'] is not None else 0.0
+        
+    except (Exception, psycopg2.Error) as error:
+        print(f"Error calculating performance analysis: {error}")
+        return jsonify({'error': f'Database error in performance analysis: {error}'}), 500
+    finally:
+        if conn:
+            conn.close()
 
-    total_income = totals.get('income', 0.0)
-    total_expense = totals.get('expense', 0.0)
     net_profit = total_income - total_expense
-
     performance_summary_text = analyze_performance_summary(total_income, total_expense, net_profit)
 
     return jsonify({
@@ -295,27 +300,43 @@ def get_performance_analysis_route():
         'performance_summary': performance_summary_text
     })
 
-
 @app.route('/detailed_analysis', methods=['GET'])
 def get_detailed_analysis_route():
     """New route for the detailed analysis and suggestions."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT type, SUM(amount) FROM transactions GROUP BY type")
-    totals = dict(cursor.fetchall())
-    conn.close()
+    conn = None
+    total_income = 0.0
+    total_expense = 0.0
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur: # Use RealDictCursor
+            cur.execute("SELECT type, SUM(amount) AS total FROM transactions GROUP BY type")
+            totals_rows = cur.fetchall()
 
-    total_income = totals.get('income', 0.0)
-    total_expense = totals.get('expense', 0.0)
+        for row in totals_rows:
+            if row['type'] == 'income':
+                total_income = row['total'] if row['total'] is not None else 0.0
+            elif row['type'] == 'expense':
+                total_expense = row['total'] if row['total'] is not None else 0.0
+        
+    except (Exception, psycopg2.Error) as error:
+        print(f"Error calculating detailed analysis totals: {error}")
+        return jsonify({'error': f'Database error in detailed analysis: {error}'}), 500
+    finally:
+        if conn:
+            conn.close()
+            
     net_profit = total_income - total_expense
-
     detailed_report_text = analyze_performance_detailed(total_income, total_expense, net_profit)
 
     return jsonify({
         'detailed_report': detailed_report_text
     })
 
-# Remove the __main__ block as Vercel handles execution
+# Vercel handles the WSGI server (like Gunicorn) and execution,
+# so the if __name__ == '__main__': block is not needed for Vercel deployment.
+# You can keep it for local testing if you set DATABASE_URL locally and run 'python app.py'.
 # if __name__ == '__main__':
-#     # init_db() # This call is moved up for Vercel
-#     app.run(debug=True)
+#     # For local testing against a PostgreSQL DB (e.g., local or cloud like Neon)
+#     # ensure DATABASE_URL is set in your environment.
+#     # init_db() # Already called when the app module is loaded
+#     app.run(debug=True, port=5001) # Example port for local testing
