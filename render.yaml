@@ -1,0 +1,55 @@
+# render.yaml
+# This file defines the services for your Finance Monitor application on Render.
+
+services:
+  # Backend Python/Flask API Service
+  - type: web # Indicates a web service that can handle HTTP requests
+    name: finance-api # A unique name for your API service
+    env: python # Specifies the runtime environment
+    region: oregon # Optional: choose a region (e.g., oregon, frankfurt, singapore)
+    plan: free # Use Render's free instance type (may sleep on inactivity)
+    
+    healthCheckPath: / # Basic health check for Render to know your service is up
+                      # The root path of your Flask app returns "Finance Monitor Backend is running!"
+    
+    # Build command to install dependencies
+    buildCommand: "pip install --upgrade pip && pip install -r requirements.txt"
+    
+    # Start command to run your Flask application using Gunicorn
+    # Render injects a PORT environment variable that Gunicorn should bind to.
+    startCommand: "gunicorn app:app -b 0.0.0.0:$PORT"
+    
+    envVars:
+      - key: PYTHON_VERSION # Specify the Python version
+        value: 3.9 # Or 3.10, 3.11, etc., matching your local development if possible
+      - key: GOOGLE_API_KEY
+        sync: false # IMPORTANT: Set this to false. You will set the actual
+                    # value as a secret environment variable in the Render Dashboard.
+
+  # Frontend Static Site Service
+  - type: static # Indicates a service for static files
+    name: finance-frontend # A unique name for your frontend service
+    region: oregon # Optional: choose a region, ideally same as backend
+    plan: free
+    
+    # Directory (relative to the repository root) containing your static files.
+    # Since index.html, script.js, style.css are in the root, we use './'.
+    publishPath: ./
+    
+    routes:
+      # Rewrite rule for API calls:
+      # Any request to /api/* on the static site's domain will be
+      # forwarded to your 'finance-api' backend service.
+      - type: rewrite
+        source: /api/(.*) # Match any path starting with /api/
+        # Destination uses the internal service address Render provides for finance-api.
+        # Render handles the port and internal routing.
+        destination: http://finance-api/api/$1 # $1 is the captured part from (.*)
+
+      # Rewrite rule for all other paths:
+      # Serves index.html for any path not matched above.
+      # This is useful for Single Page Applications (SPAs) or if you want
+      # unmatched paths to default to your main page.
+      - type: rewrite
+        source: /.* # Match any other path
+        destination: /index.html

@@ -1,0 +1,12 @@
+# .gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.db
+*.sqlite3
+.DS_Store
+# Add any other files/directories you don't want in Git

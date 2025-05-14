@@ -18,9 +18,11 @@ import google.generativeai as genai
 BASE_DIR = os.path.dirname(__file__)
 
 # Database path depends on the environment
-# On Vercel, use /tmp. Otherwise, use the local path.
-# The VERCEL environment variable is set automatically by Vercel.
-if "VERCEL" in os.environ:
+# On cloud platforms like Vercel or Render, use /tmp. Otherwise, use the local path.
+if "RENDER_INSTANCE_ID" in os.environ: # RENDER_INSTANCE_ID is an env var set by Render
+     DATABASE_PATH = os.path.join('/tmp', 'finance.db')
+     print(f"Running on Render. Using temporary database path: {DATABASE_PATH}")
+elif "VERCEL" in os.environ: # Keep Vercel logic if you ever switch back
      DATABASE_PATH = os.path.join('/tmp', 'finance.db')
      print(f"Running on Vercel. Using temporary database path: {DATABASE_PATH}")
 else:
@@ -315,7 +317,10 @@ def get_detailed_analysis_route():
         'detailed_report': detailed_report_text
     })
 
-# Remove the __main__ block as Vercel handles execution
-# if __name__ == '__main__':
-#     # init_db() # This call is moved up for Vercel
-#     app.run(debug=True)
+# This block allows running the app locally for development (e.g., python app.py)
+# Gunicorn will directly use the 'app' instance when deployed on Render.
+if __name__ == '__main__':
+    # init_db() # Already called globally when module loads
+    # The port needs to be different from the one Gunicorn might use in a local Procfile, if any.
+    # For simple 'python app.py' local run, 5000 is Flask's default.
+    app.run(debug=True, port=5001) # Changed port to avoid conflict if also running via gunicorn locally for testing
