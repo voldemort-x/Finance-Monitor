@@ -1,0 +1,5 @@
+Flask
+Flask-Cors
+google-generativeai
+gunicorn
+# Add any other packages your code might implicitly use

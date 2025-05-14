@@ -1,0 +1,134 @@
+body {
+    font-family: sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 20px;
+    background-color: #f4f4f4;
+    color: #333;
+}
+
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+h1, h2 {
+    text-align: center;
+    color: #5a287d; /* Example brand color */
+}
+
+section {
+    margin-bottom: 30px;
+    padding: 20px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background-color: #f9f9f9;
+}
+
+.add-transaction form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    align-items: flex-end;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-group label {
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.form-group input,
+.form-group select {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+button { /* General button styling */
+    padding: 10px 15px;
+    background-color: #5a287d;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: background-color 0.3s ease;
+}
+
+ button:hover:not(:disabled) {
+    background-color: #411e5a;
+}
+
+button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+
+.performance-report #report-content p {
+    margin-bottom: 10px;
+}
+
+/* Styling for the detailed review section */
+.detailed-review-section {
+    margin-top: 30px; /* Add some space above */
+}
+
+.detailed-review-section button {
+     display: block; /* Make button take full width or center it */
+     margin: 15px auto; /* Center the button */
+     width: auto; /* Allow button width to adjust */
+}
+
+#detailed-report-content {
+     margin-top: 15px;
+     padding: 15px;
+     border: 1px dashed #a0a0a0; /* Distinct border */
+     border-radius: 5px;
+     background-color: #fff; /* White background for the report area */
+     white-space: pre-wrap; /* Preserve line breaks from LLM output */
+     word-wrap: break-word; /* Prevent long words from overflowing */
+}
+
+
+.transactions-list table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.transactions-list th,
+.transactions-list td {
+    padding: 10px;
+    border: 1px solid #ddd;
+    text-align: left;
+}
+
+.transactions-list th {
+    background-color: #e9e9e9;
+    font-weight: bold;
+}
+
+.transactions-list tbody tr:nth-child(even) {
+    background-color: #f2f2f2;
+}
+
+.transactions-list .income {
+    color: green;
+    font-weight: bold;
+}
+
+.transactions-list .expense {
+    color: red;
+    font-weight: bold;
+}
